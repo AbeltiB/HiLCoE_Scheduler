@@ -1,0 +1,112 @@
+import { createHash } from "crypto";
+import { db } from "@/lib/db";
+import type { Prisma } from "@/generated/prisma/client";
+
+/**
+ * Append-only, hash-chained audit log.
+ *
+ * Each row's hash = sha256(prevHash + canonical(row content)). A nightly job
+ * can re-walk the chain to prove nothing was altered or deleted in place.
+ * Chain integrity requires serialized appends, so every write takes a
+ * transaction-scoped Postgres advisory lock (key 4217) — cheap at this volume.
+ */
+
+export type AuditEntry = {
+  action: string;
+  actorId?: string | null;
+  entityType?: string;
+  entityId?: string;
+  before?: unknown;
+  after?: unknown;
+  meta?: unknown;
+  requestId?: string;
+  ip?: string;
+  userAgent?: string;
+};
+
+const canonical = (v: unknown) =>
+  JSON.stringify(v, Object.keys((v as object) ?? {}).sort());
+
+function computeHash(prevHash: string, e: AuditEntry, at: string) {
+  return createHash("sha256")
+    .update(prevHash)
+    .update(at)
+    .update(e.action)
+    .update(e.actorId ?? "")
+    .update(e.entityType ?? "")
+    .update(e.entityId ?? "")
+    .update(canonical(e.before ?? null))
+    .update(canonical(e.after ?? null))
+    .update(canonical(e.meta ?? null))
+    .digest("hex");
+}
+
+type Tx = Prisma.TransactionClient;
+
+/**
+ * Append one audit row. Pass the surrounding transaction client (`tx`) when
+ * the audited mutation runs in a transaction, so log + change commit or roll
+ * back together. Falls back to its own transaction otherwise.
+ */
+export async function audit(entry: AuditEntry, tx?: Tx): Promise<void> {
+  const run = async (t: Tx) => {
+    await t.$executeRaw`SELECT pg_advisory_xact_lock(4217)`;
+    const last = await t.auditLog.findFirst({
+      orderBy: { id: "desc" },
+      select: { hash: true },
+    });
+    const prevHash = last?.hash ?? "GENESIS";
+    const at = new Date();
+    await t.auditLog.create({
+      data: {
+        at,
+        action: entry.action,
+        actorId: entry.actorId ?? null,
+        entityType: entry.entityType,
+        entityId: entry.entityId,
+        before: (entry.before ?? undefined) as Prisma.InputJsonValue | undefined,
+        after: (entry.after ?? undefined) as Prisma.InputJsonValue | undefined,
+        meta: (entry.meta ?? undefined) as Prisma.InputJsonValue | undefined,
+        requestId: entry.requestId,
+        ip: entry.ip,
+        userAgent: entry.userAgent,
+        prevHash,
+        hash: computeHash(prevHash, entry, at.toISOString()),
+      },
+    });
+  };
+  if (tx) return run(tx);
+  await db.$transaction(run);
+}
+
+/** Verify the whole chain; returns the first broken row id or null if intact. */
+export async function verifyAuditChain(): Promise<bigint | null> {
+  let prevHash = "GENESIS";
+  let cursor: bigint | undefined;
+  for (;;) {
+    const rows = await db.auditLog.findMany({
+      take: 500,
+      orderBy: { id: "asc" },
+      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+    });
+    if (rows.length === 0) return null;
+    for (const r of rows) {
+      const expected = computeHash(
+        prevHash,
+        {
+          action: r.action,
+          actorId: r.actorId,
+          entityType: r.entityType ?? undefined,
+          entityId: r.entityId ?? undefined,
+          before: r.before,
+          after: r.after,
+          meta: r.meta,
+        },
+        r.at.toISOString()
+      );
+      if (r.prevHash !== prevHash || r.hash !== expected) return r.id;
+      prevHash = r.hash;
+    }
+    cursor = rows[rows.length - 1].id;
+  }
+}
