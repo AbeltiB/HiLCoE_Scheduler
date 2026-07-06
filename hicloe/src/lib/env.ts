@@ -13,6 +13,7 @@ const Env = z.object({
   SMTP_USER: z.string(),
   SMTP_PASS: z.string(),
   MAIL_FROM: z.string(),
+  SOLVER_URL: z.string().url().default("http://localhost:8000"),
 });
 
 // Fail fast at boot with a readable message instead of deep runtime errors.
