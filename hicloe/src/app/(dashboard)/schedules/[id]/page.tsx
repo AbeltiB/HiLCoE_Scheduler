@@ -11,6 +11,7 @@ const WEIGHT_LABELS: [string, string][] = [
   ["instructor_consecutive_4plus", "Instructor 4+ consecutive periods"],
   ["instructor_daily_overload", "Instructor over daily max"],
   ["room_instability", "Section changes rooms across week"],
+  ["instructor_avoid_slot", "Instructor placed in an avoided slot"],
 ];
 
 const stateTone: Record<string, "gray" | "blue" | "green" | "red" | "amber"> = {
@@ -37,7 +38,7 @@ export default function SchedulePage({ params }: { params: Promise<{ id: string 
     setWeights({
       student_gap: 5, single_session_day: 3, same_course_same_day: 8,
       lab_before_lecture: 2, instructor_consecutive_4plus: 4,
-      instructor_daily_overload: 2, room_instability: 1,
+      instructor_daily_overload: 2, room_instability: 1, instructor_avoid_slot: 6,
       ...(cfg?.weights ?? {}),
     });
     setOptions({ instructor_max_periods_per_day: 4, max_time_seconds: 60, ...(cfg?.options ?? {}) });

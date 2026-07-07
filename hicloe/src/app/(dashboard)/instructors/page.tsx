@@ -10,6 +10,7 @@ export default function Page() {
       endpoint="/api/entities/instructors"
       columns={[
         { key: "fullName", label: "Name" },
+        { key: "email", label: "Email", render: (r) => r.email ?? "—" },
         { key: "employment", label: "Employment", render: (r) =>
           <Badge tone={r.employment === "FULL_TIME" ? "green" : "amber"}>
             {r.employment === "FULL_TIME" ? "Full-time" : "Part-time"}
@@ -23,6 +24,8 @@ export default function Page() {
       ]}
       fields={[
         { name: "fullName", label: "Full name", type: "text" },
+        { name: "email", label: "Email", type: "text", placeholder: "name@hilcoe.edu.et",
+          hint: "Used for broadcasts and future notifications" },
         { name: "employment", label: "Employment", type: "select", options: [
           { value: "FULL_TIME", label: "Full-time" }, { value: "PART_TIME", label: "Part-time" },
         ]},
@@ -31,7 +34,7 @@ export default function Page() {
           hint: "Emergency assignments outside the pool are still possible at offering level" },
       ]}
       toForm={(r) => ({
-        fullName: r.fullName, employment: r.employment,
+        fullName: r.fullName, email: r.email ?? "", employment: r.employment,
         coursePoolIds: (r.coursePool ?? []).map((c: any) => c.id),
       })}
     />

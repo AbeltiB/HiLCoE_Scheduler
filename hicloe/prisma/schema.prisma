@@ -163,6 +163,7 @@ model Section {
   batch     Batch      @relation(fields: [batchId], references: [id])
   headcount Int
   groups    LabGroup[]
+  students  Student[]
   offerings CourseOffering[] @relation("OfferingSections")
   deletedAt DateTime?  @map("deleted_at")
 
@@ -176,10 +177,24 @@ model LabGroup {
   sectionId String    @map("section_id")
   section   Section   @relation(fields: [sectionId], references: [id])
   headcount Int
+  students  Student[]
   deletedAt DateTime? @map("deleted_at")
 
   @@unique([name, sectionId])
   @@map("lab_groups")
+}
+
+model Student {
+  id        String    @id @default(uuid())
+  fullName  String    @map("full_name")
+  email     String    @unique
+  sectionId String    @map("section_id")
+  section   Section   @relation(fields: [sectionId], references: [id])
+  groupId   String?   @map("group_id")
+  group     LabGroup? @relation(fields: [groupId], references: [id])
+  deletedAt DateTime? @map("deleted_at")
+
+  @@map("students")
 }
 
 model Course {
@@ -224,6 +239,7 @@ model Instructor {
   userId       String?    @unique @map("user_id") // optional link to a login account
   user         User?      @relation(fields: [userId], references: [id])
   fullName     String     @map("full_name")
+  email        String?    @unique
   employment   Employment
   coursePool   Course[]   @relation("CoursePool")
   availability InstructorAvailability[]
@@ -244,12 +260,19 @@ model OfferingInstructor {
   @@map("offering_instructors")
 }
 
+enum AvailabilityStatus {
+  AVAILABLE
+  AVOID       // soft: schedulable but penalized (has a reason)
+  UNAVAILABLE // hard: never scheduled here
+}
+
 model InstructorAvailability {
-  instructorId String     @map("instructor_id")
-  instructor   Instructor @relation(fields: [instructorId], references: [id], onDelete: Cascade)
-  slotDefId    String     @map("slot_def_id")
-  slotDef      SlotDef    @relation(fields: [slotDefId], references: [id], onDelete: Cascade)
-  available    Boolean    @default(true)
+  instructorId String             @map("instructor_id")
+  instructor   Instructor         @relation(fields: [instructorId], references: [id], onDelete: Cascade)
+  slotDefId    String             @map("slot_def_id")
+  slotDef      SlotDef            @relation(fields: [slotDefId], references: [id], onDelete: Cascade)
+  status       AvailabilityStatus @default(AVAILABLE)
+  reason       String?
 
   @@id([instructorId, slotDefId])
   @@map("instructor_availability")

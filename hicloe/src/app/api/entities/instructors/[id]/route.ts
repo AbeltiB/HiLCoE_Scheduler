@@ -5,6 +5,7 @@ export const { PATCH, DELETE } = crudItem({
   include: { coursePool: { select: { id: true, code: true } } },
   toData: (d) => ({
     ...(d.fullName !== undefined ? { fullName: d.fullName } : {}),
+    ...(d.email !== undefined ? { email: d.email } : {}),
     ...(d.employment !== undefined ? { employment: d.employment } : {}),
     ...(d.userId !== undefined ? { userId: d.userId } : {}),
     ...(d.coursePoolIds !== undefined

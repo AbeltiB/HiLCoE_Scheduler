@@ -15,7 +15,7 @@ export const { GET, POST } = crudCollection({
   include: { coursePool: { select: { id: true, code: true } }, user: { select: { email: true } } },
   orderBy: { fullName: "asc" },
   toData: (d) => ({
-    fullName: d.fullName, employment: d.employment, userId: d.userId ?? null,
+    fullName: d.fullName, email: d.email ?? null, employment: d.employment, userId: d.userId ?? null,
     coursePool: { connect: (d.coursePoolIds ?? []).map((id: string) => ({ id })) },
   }),
 });

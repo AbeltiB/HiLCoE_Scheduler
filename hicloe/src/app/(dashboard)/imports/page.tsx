@@ -56,7 +56,10 @@ export default function ImportsPage() {
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-[19px] font-semibold">Registration imports</h1>
-        <div>
+        <div className="flex gap-2">
+          <Btn variant="ghost" onClick={() => { window.location.href = "/api/imports/template"; }}>
+            ⇩ Download template
+          </Btn>
           <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
             onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
           <Btn onClick={() => fileRef.current?.click()} disabled={busy}>
@@ -109,7 +112,9 @@ export default function ImportsPage() {
 Batches:    batch | program_code | period_name
 Sections:   batch | section | headcount
 Groups:     batch | section | group | headcount
-Offerings:  batch | course_code | sections (e.g. "A,B") | shared_lecture (Y/N)`}
+Offerings:  batch | course_code | sections (e.g. "A,B") | shared_lecture (Y/N)
+Instructors: full_name | email | employment (FULL_TIME/PART_TIME)
+Students:   batch | section | group (optional) | full_name | email`}
         </code>
         Programs and academic periods must exist in the system before importing — the validator will flag unknown codes.
         Re-uploading updates matching records (upsert), so a corrected file can be safely re-imported.
