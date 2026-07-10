@@ -6,6 +6,7 @@ import {
   LayoutDashboard, CalendarRange, GraduationCap, Users, Rows3, FlaskConical,
   BookOpen, Puzzle, DoorOpen, UserRound, CalendarClock, CalendarCheck2,
   Upload, Megaphone, Menu, ChevronsLeft, ChevronsRight, LogOut,
+  UserCog, ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
 import { Logo } from "@/components/logo";
@@ -50,6 +51,13 @@ const NAV: { section: string; items: NavItem[] }[] = [
     section: "Communication",
     items: [{ href: "/broadcast", label: "Broadcast", icon: Megaphone, perm: "broadcast:send" }],
   },
+  {
+    section: "Administration",
+    items: [
+      { href: "/users", label: "Users", icon: UserCog, perm: "users:manage" },
+      { href: "/roles", label: "Roles & permissions", icon: ShieldCheck, perm: "roles:manage" },
+    ],
+  },
 ];
 
 export function Shell({
@@ -64,6 +72,12 @@ export function Shell({
   const router = useRouter();
   const perms = new Set(user.permissions);
   const allowed = (p?: string) => !p || perms.has(p) || perms.has("*");
+  const initials = user.fullName
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase())
+    .join("");
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -165,8 +179,8 @@ export function Shell({
             <div className="text-[13px] font-semibold">{user.fullName}</div>
             <div className="text-[11.5px] text-ink-faint">{user.roles.join(" · ") || user.email}</div>
           </div>
-          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-soft text-[13px] font-bold text-brand sm:flex">
-            {user.fullName.slice(0, 1).toUpperCase()}
+          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-soft text-[12.5px] font-bold leading-none text-brand">
+            {initials}
           </div>
           <button
             onClick={logout}
