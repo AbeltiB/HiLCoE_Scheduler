@@ -52,7 +52,7 @@ export const POST = guarded("schedule:generate", async (ctx, params) => {
   });
 
   try {
-    await solverSubmitJob(payload);
+    await solverSubmitJob(payload, ctx.requestId);
   } catch (e) {
     await db.schedule.update({ where: { id: scheduleId }, data: { state: "FAILED" } });
     await ctx.log({ action: "schedule.generation_submit_failed", entityType: "ScheduleVersion", entityId: versionId });

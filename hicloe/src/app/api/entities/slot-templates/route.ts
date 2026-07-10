@@ -6,6 +6,7 @@ import { audit } from "@/lib/audit/audit";
 
 export const GET = guarded("entities:read", async () => {
   const rows = await db.slotTemplate.findMany({
+    where: { deletedAt: null },
     include: { _count: { select: { slots: true } } },
     orderBy: { createdAt: "desc" },
   });
@@ -17,7 +18,7 @@ export const POST = guarded("entities:write", async (ctx) => {
   if (!parsed.success) throw new HttpError(400, parsed.error.issues[0]?.message ?? "Invalid body");
   const row = await db.$transaction(async (tx) => {
     if (parsed.data.active) {
-      await tx.slotTemplate.updateMany({ data: { active: false } }); // single active template
+      await tx.slotTemplate.updateMany({ where: { deletedAt: null }, data: { active: false } }); // single active template
     }
     const created = await tx.slotTemplate.create({ data: parsed.data });
     await audit(

@@ -1,6 +1,8 @@
--- Postgres safety nets under the app layer. Run via `npm run db:harden`
--- after `prisma migrate dev` (kept outside Prisma migrations deliberately
--- so schema evolution never fights hand-written DDL).
+-- Postgres safety nets under the app layer. Previously applied out-of-band
+-- via `npm run db:harden` (prisma/sql/hardening.sql) — folded into the real
+-- migration chain so `prisma migrate deploy` can never skip it on a fresh
+-- environment. Written idempotently since it may re-run against a database
+-- where the standalone script already applied it once.
 
 -- Audit log is append-only for the app role: no UPDATE/DELETE ever.
 CREATE OR REPLACE FUNCTION forbid_audit_mutation() RETURNS trigger AS $$

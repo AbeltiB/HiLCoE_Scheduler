@@ -31,25 +31,41 @@ export const PATCH = guarded("schedule:edit", async (ctx, params) => {
     if (reason) throw new HttpError(409, `Move rejected: ${reason}`);
   }
 
-  await db.$transaction(async (tx) => {
-    await tx.assignment.update({
-      where: { id: aid },
-      data: {
-        slotDefId: parsed.data.slotDefId,
-        roomId: parsed.data.roomId,
-        pinned: parsed.data.pinned ?? assignment.pinned,
-        manuallyEdited: moved ? true : assignment.manuallyEdited,
-      },
+  try {
+    await db.$transaction(async (tx) => {
+      // Optimistic concurrency: only apply if nobody else changed this
+      // assignment since we read it above. Two concurrent moves reading the
+      // same pre-move state can otherwise both pass checkMove() and both
+      // write — this closes that window.
+      const result = await tx.assignment.updateMany({
+        where: { id: aid, updatedAt: assignment.updatedAt },
+        data: {
+          slotDefId: parsed.data.slotDefId,
+          roomId: parsed.data.roomId,
+          pinned: parsed.data.pinned ?? assignment.pinned,
+          manuallyEdited: moved ? true : assignment.manuallyEdited,
+        },
+      });
+      if (result.count === 0) {
+        throw new HttpError(409, "This assignment was changed by someone else — reload and try again.");
+      }
+      await audit(
+        { action: moved ? "assignment.moved" : "assignment.pin_toggled",
+          actorId: ctx.user.id, entityType: "Assignment", entityId: aid,
+          before: { slotDefId: assignment.slotDefId, roomId: assignment.roomId, pinned: assignment.pinned },
+          after: parsed.data,
+          meta: { versionId, sessionId: assignment.sessionId },
+          requestId: ctx.requestId, ip: ctx.ip, userAgent: ctx.userAgent },
+        tx
+      );
     });
-    await audit(
-      { action: moved ? "assignment.moved" : "assignment.pin_toggled",
-        actorId: ctx.user.id, entityType: "Assignment", entityId: aid,
-        before: { slotDefId: assignment.slotDefId, roomId: assignment.roomId, pinned: assignment.pinned },
-        after: parsed.data,
-        meta: { versionId, sessionId: assignment.sessionId },
-        requestId: ctx.requestId, ip: ctx.ip, userAgent: ctx.userAgent },
-      tx
-    );
-  });
+  } catch (e) {
+    if (e instanceof HttpError) throw e;
+    const err = e as { code?: string };
+    if (err?.code === "P2002") {
+      throw new HttpError(409, "That room/slot was just taken by another assignment — reload and try again.");
+    }
+    throw e;
+  }
   return NextResponse.json({ ok: true });
 });

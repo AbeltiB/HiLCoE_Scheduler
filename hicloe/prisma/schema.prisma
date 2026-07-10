@@ -41,6 +41,7 @@ model User {
   sessions      AuthSession[]
   tokens        AuthToken[]
   auditLogs     AuditLog[]
+  accessLogs    AccessLog[]
   instructor    Instructor?
   verifications Verification[]
   importBatches ImportBatch[]
@@ -153,6 +154,8 @@ model Batch {
   deletedAt DateTime?      @map("deleted_at") // soft delete
 
   @@unique([name, programId, periodId])
+  @@index([programId])
+  @@index([periodId])
   @@map("batches")
 }
 
@@ -167,7 +170,13 @@ model Section {
   offerings CourseOffering[] @relation("OfferingSections")
   deletedAt DateTime?  @map("deleted_at")
 
-  @@unique([name, batchId])
+  // No plain @@unique here: Prisma's schema DSL can't express a partial
+  // (filtered) unique index, and this natural key must only be unique among
+  // non-deleted rows (see migrations/*_partial_unique_natural_keys). A plain
+  // @@unique would re-block reusing "A" in this batch forever after the
+  // original section is soft-deleted, which is the bug this fixes.
+  @@index([name, batchId])
+  @@index([batchId])
   @@map("sections")
 }
 
@@ -181,25 +190,37 @@ model LabGroup {
   deletedAt DateTime? @map("deleted_at")
 
   @@unique([name, sectionId])
+  @@index([sectionId])
   @@map("lab_groups")
 }
 
 model Student {
   id        String    @id @default(uuid())
   fullName  String    @map("full_name")
-  email     String    @unique
+  // No @unique: only unique among non-deleted rows — see
+  // migrations/*_partial_unique_natural_keys (Prisma can't express a partial
+  // index in schema.prisma).
+  email     String
   sectionId String    @map("section_id")
   section   Section   @relation(fields: [sectionId], references: [id])
   groupId   String?   @map("group_id")
   group     LabGroup? @relation(fields: [groupId], references: [id])
   deletedAt DateTime? @map("deleted_at")
 
+  @@index([sectionId])
+  @@index([groupId])
+  @@index([email])
   @@map("students")
 }
 
 model Course {
   id                     String  @id @default(uuid())
-  code                   String  @unique // "CS301"
+  // No @unique: only unique among non-deleted rows — see
+  // migrations/*_partial_unique_natural_keys (Prisma can't express a partial
+  // index in schema.prisma). pipeline.ts resolves this manually (findFirst +
+  // create/update) rather than Prisma's upsert(), which requires a
+  // schema-level unique field.
+  code                   String  // "CS301"
   name                   String
   lectureCreditHrs       Int     @map("lecture_credit_hrs")
   labCreditHrs           Int     @map("lab_credit_hrs")
@@ -210,6 +231,7 @@ model Course {
   instructorPool         Instructor[] @relation("CoursePool")
   deletedAt              DateTime? @map("deleted_at")
 
+  @@index([code])
   @@map("courses")
 }
 
@@ -226,6 +248,7 @@ model CourseOffering {
   deletedAt     DateTime? @map("deleted_at")
 
   @@unique([courseId, batchId])
+  @@index([batchId])
   @@map("course_offerings")
 }
 
@@ -239,13 +262,19 @@ model Instructor {
   userId       String?    @unique @map("user_id") // optional link to a login account
   user         User?      @relation(fields: [userId], references: [id])
   fullName     String     @map("full_name")
-  email        String?    @unique
+  // No @unique: only unique among non-deleted rows — see
+  // migrations/*_partial_unique_natural_keys (Prisma can't express a partial
+  // index in schema.prisma). pipeline.ts resolves this manually (findFirst +
+  // create/update) rather than Prisma's upsert(), which requires a
+  // schema-level unique field.
+  email        String?
   employment   Employment
   coursePool   Course[]   @relation("CoursePool")
   availability InstructorAvailability[]
   offerings    OfferingInstructor[]
   deletedAt    DateTime?  @map("deleted_at")
 
+  @@index([email])
   @@map("instructors")
 }
 
@@ -257,6 +286,7 @@ model OfferingInstructor {
   kind         SessionKind    @default(LECTURE) // which part they teach; co-teaching = multiple rows same kind
 
   @@id([offeringId, instructorId, kind])
+  @@index([instructorId])
   @@map("offering_instructors")
 }
 
@@ -275,6 +305,7 @@ model InstructorAvailability {
   reason       String?
 
   @@id([instructorId, slotDefId])
+  @@index([slotDefId])
   @@map("instructor_availability")
 }
 
@@ -287,6 +318,10 @@ model SlotTemplate {
   slots     SlotDef[]
   schedules Schedule[]
   createdAt DateTime  @default(now()) @map("created_at")
+  // Historical Assignments RESTRICT-block hard-deleting a template's SlotDefs
+  // forever, so retired templates (a school changes its period timings most
+  // years) had no way to leave the active list at all. Soft delete instead.
+  deletedAt DateTime? @map("deleted_at")
 
   @@map("slot_templates")
 }
@@ -315,13 +350,17 @@ enum RoomType {
 
 model Room {
   id          String       @id @default(uuid())
-  name        String       @unique
+  // No @unique: only unique among non-deleted rows — see
+  // migrations/*_partial_unique_natural_keys (Prisma can't express a partial
+  // index in schema.prisma).
+  name        String
   type        RoomType
   capacity    Int
   active      Boolean      @default(true)
   assignments Assignment[]
   deletedAt   DateTime?    @map("deleted_at")
 
+  @@index([name])
   @@map("rooms")
 }
 
@@ -391,6 +430,8 @@ model ScheduleSession {
   instructorIds Json            @map("instructor_ids") // ["..."] co-teaching set
   assignment    Assignment?
 
+  @@index([versionId])
+  @@index([offeringId])
   @@map("schedule_sessions")
 }
 
@@ -404,9 +445,19 @@ model Assignment {
   room           Room            @relation(fields: [roomId], references: [id])
   pinned         Boolean         @default(false)
   manuallyEdited Boolean         @default(false) @map("manually_edited")
+  updatedAt      DateTime        @default(now()) @updatedAt @map("updated_at") // optimistic-concurrency guard on manual moves
 
-  // Hard invariant "no room double-booking within a version" is enforced by a
-  // partial unique index added in prisma/sql/hardening.sql (needs version join).
+  // Denormalized copy of session.version.id, auto-filled by the
+  // assignments_set_version trigger (migrations/20260710001945_hardening_safety_nets)
+  // on insert/update of session_id. Declared here (not just raw SQL) so Prisma
+  // tracks this column as part of its own schema — leaving it as an
+  // out-of-band column caused `prisma migrate dev` to see it as drift and
+  // silently drop it (and the unique index below) the first time an unrelated
+  // field was added to this model. Never written to directly from app code.
+  versionId String? @map("version_id")
+
+  // Hard invariant: no room double-booking within one schedule version.
+  @@unique([versionId, slotDefId, roomId], map: "uq_assignment_room_slot_per_version")
   @@index([slotDefId, roomId])
   @@map("assignments")
 }
@@ -440,6 +491,8 @@ model Verification {
   comment    String?
   decidedAt  DateTime             @default(now()) @map("decided_at")
 
+  @@index([versionId])
+  @@index([verifierId])
   @@map("verifications")
 }
 
@@ -466,6 +519,7 @@ model ImportBatch {
   status           ImportStatus @default(PENDING)
   createdAt        DateTime     @default(now()) @map("created_at")
 
+  @@index([uploadedById])
   @@map("import_batches")
 }
 
@@ -492,4 +546,29 @@ model AuditLog {
   @@index([actorId, at])
   @@index([action, at])
   @@map("audit_logs")
+}
+
+// ────────────────────────── Access log (every request, no hash chain) ──────────────────────────
+// Deliberately separate from AuditLog: every GET/list read lands here too, so this table sees
+// far higher write volume than the audit chain. It carries no hash/prevHash and every insert is a
+// plain, unserialized create — it must never share AuditLog's pg_advisory_xact_lock, or read
+// traffic would contend with the tamper-evident mutation/security chain. Not a substitute for
+// AuditLog: mutations and security events are still recorded there as the record of truth.
+model AccessLog {
+  id         BigInt   @id @default(autoincrement())
+  at         DateTime @default(now())
+  actorId    String?  @map("actor_id") // null = unauthenticated request
+  actor      User?    @relation(fields: [actorId], references: [id])
+  method     String
+  path       String
+  statusCode Int      @map("status_code")
+  durationMs Int      @map("duration_ms")
+  requestId  String?  @map("request_id")
+  ip         String?
+  userAgent  String?  @map("user_agent")
+
+  @@index([at])
+  @@index([actorId, at])
+  @@index([path, at])
+  @@map("access_logs")
 }

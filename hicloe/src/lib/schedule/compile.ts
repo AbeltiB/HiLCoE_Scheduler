@@ -144,19 +144,26 @@ export async function compilePayload(scheduleId: string, jobId: string): Promise
   }
 
   // ── instructor availability compile ──
+  // AvailabilityStatus is three-state: UNAVAILABLE removes the slot entirely
+  // (hard), AVOID keeps it schedulable but also feeds avoid_slot_ids for the
+  // solver's soft instructor_avoid_slot penalty, AVAILABLE is a no-op
+  // confirmation. A slot with no override row at all falls back to the
+  // employment default (full-time available, part-time not).
   const nonBlockedSlotIds = slots.filter((s) => !s.blocked).map((s) => s.id);
   const contractInstructors = instructors.map((ins) => {
     const rows = ins.availability.filter((a) => nonBlockedSlotIds.includes(a.slotDefId));
+    const statusBySlot = new Map(rows.map((r) => [r.slotDefId, r.status]));
     let available: string[] | null;
     if (rows.length === 0) {
       available = ins.employment === "FULL_TIME" ? null : []; // PT with no grid = not schedulable (precheck flags it)
     } else {
-      const overrides = new Map(rows.map((r) => [r.slotDefId, r.available]));
-      available = nonBlockedSlotIds.filter((sid) =>
-        overrides.has(sid) ? overrides.get(sid)! : ins.employment === "FULL_TIME"
-      );
+      available = nonBlockedSlotIds.filter((sid) => {
+        const status = statusBySlot.get(sid);
+        return status === undefined ? ins.employment === "FULL_TIME" : status !== "UNAVAILABLE";
+      });
     }
-    return { id: ins.id, employment: ins.employment, available_slot_ids: available };
+    const avoid = nonBlockedSlotIds.filter((sid) => statusBySlot.get(sid) === "AVOID");
+    return { id: ins.id, employment: ins.employment, available_slot_ids: available, avoid_slot_ids: avoid };
   });
 
   // ── external occupancy from overlapping PUBLISHED schedules ──

@@ -117,14 +117,14 @@ export function CrudPage({ title, endpoint, columns, fields, toForm, canWrite = 
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-[19px] font-semibold">{title}</h1>
+      <div className="mb-5 flex items-center justify-between">
+        <h1 className="text-[21px] font-bold tracking-tight">{title}</h1>
         {canWrite && <Btn onClick={openCreate}>+ New</Btn>}
       </div>
 
-      <div className="overflow-x-auto rounded-card border border-line bg-card">
+      <div className="glass-panel overflow-x-auto">
         <table className="w-full min-w-[560px] border-collapse">
-          <thead className="border-b border-line bg-surface/60">
+          <thead className="border-b border-line">
             <tr>
               {columns.map((c) => <Th key={c.key}>{c.label}</Th>)}
               {canWrite && <Th> </Th>}
@@ -132,15 +132,15 @@ export function CrudPage({ title, endpoint, columns, fields, toForm, canWrite = 
           </thead>
           <tbody>
             {loading && (
-              <tr><Td>Loading…</Td></tr>
+              <tr><td className="px-4 py-8 text-center text-[13px] text-ink-faint" colSpan={columns.length + 1}>Loading…</td></tr>
             )}
             {!loading && rows.length === 0 && (
-              <tr><td className="px-3 py-8 text-center text-[13px] text-ink-faint" colSpan={columns.length + 1}>
+              <tr><td className="px-4 py-10 text-center text-[13px] text-ink-faint" colSpan={columns.length + 1}>
                 Nothing here yet. {canWrite ? "Create the first one." : ""}
               </td></tr>
             )}
             {rows.map((row) => (
-              <tr key={row.id} className="border-b border-line last:border-0 hover:bg-surface/50">
+              <tr key={row.id} className="border-b border-line last:border-0 transition-colors hover:bg-brand-soft/40">
                 {columns.map((c) => (
                   <Td key={c.key}>{c.render ? c.render(row) : String(row[c.key] ?? "—")}</Td>
                 ))}

@@ -237,6 +237,19 @@ class Model:
                                 {"instructor": ins, "day": DAY_NAMES[day],
                                  "from_period": day_slots[k].index}))
 
+        # ── instructor soft-avoided slots ("prefer not Monday morning") ──
+        if weights.instructor_avoid_slot > 0:
+            for ins in w.req.instructors:
+                for slot_id in ins.avoid_slot_ids or []:
+                    lits = self.instr_slot.get((ins.id, slot_id), [])
+                    if not lits:
+                        continue
+                    pen = m.new_bool_var(f"avoid_{ins.id}_{slot_id}")
+                    for lit in lits:
+                        m.add_implication(lit, pen)
+                    self.penalties.append(("instructor_avoid_slot", pen,
+                        {"instructor": ins.id, "slot": slot_id}))
+
         # ── room stability for section lectures ──
         if weights.room_instability > 0:
             sections = [u.id for u in w.req.student_units if u.kind == "SECTION"]
@@ -265,9 +278,9 @@ class Model:
 
 # ── solve orchestration ──────────────────────────────────────────────────
 
-def _run(model: Model, req: SolveRequest) -> tuple[cp_model.CpSolver, int]:
+def _run(model: Model, req: SolveRequest, time_limit: float | None = None) -> tuple[cp_model.CpSolver, int]:
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = req.config.max_time_seconds
+    solver.parameters.max_time_in_seconds = time_limit if time_limit is not None else req.config.max_time_seconds
     solver.parameters.num_search_workers = req.config.num_workers
     status = solver.solve(model.m)
     return solver, status
@@ -332,17 +345,24 @@ def solve(req: SolveRequest) -> SolveResponse:
             )
 
         if status == cp_model.INFEASIBLE:
+            # This is a diagnostic re-solve on top of an already-exhausted
+            # primary attempt — give it half the configured budget so a
+            # genuinely infeasible request can't cost 2x max_time_seconds.
             relaxed = Model(w, cands, relax=True)
-            rsolver, rstatus = _run(relaxed, req)
+            rsolver, rstatus = _run(relaxed, req, time_limit=req.config.max_time_seconds / 2)
             dropped: list[str] = []
             if rstatus in (cp_model.OPTIMAL, cp_model.FEASIBLE):
                 dropped = [sid for sid, d in relaxed.drop.items() if rsolver.value(d) == 1]
+            # Only OPTIMAL proves this is the smallest possible set — under
+            # FEASIBLE (time ran out before optimality was proven) it's just
+            # *a* conflicting set found so far, possibly larger than needed.
+            size_claim = "the smallest" if rstatus == cp_model.OPTIMAL else "a"
             return SolveResponse(
                 job_id=req.job_id, status="INFEASIBLE",
                 infeasibility=Infeasibility(
                     dropped_session_ids=dropped,
                     human_message=(
-                        f"No complete timetable exists. The smallest conflicting set is "
+                        f"No complete timetable exists. {size_claim.capitalize()} conflicting set is "
                         f"{len(dropped)} session(s): {', '.join(dropped[:10])}"
                         + ("…" if len(dropped) > 10 else "")
                         + ". Review these sessions' instructors, pins, and room needs."

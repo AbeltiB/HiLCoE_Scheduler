@@ -7,16 +7,19 @@ export function Btn({
   children: ReactNode; onClick?: () => void; disabled?: boolean;
   variant?: "primary" | "ghost" | "danger"; type?: "button" | "submit"; small?: boolean;
 }) {
-  const base = `inline-flex items-center justify-center gap-1.5 rounded-control font-medium cursor-pointer
-    disabled:opacity-50 disabled:cursor-default transition-colors
+  const base = `inline-flex items-center justify-center gap-1.5 rounded-control font-semibold cursor-pointer
+    disabled:opacity-50 disabled:cursor-default disabled:translate-y-0 transition-all
     ${small ? "px-2.5 py-1 text-[12.5px]" : "px-3.5 py-2 text-[13.5px]"}`;
   const styles = {
-    primary: "bg-brand text-white hover:bg-brand-dark",
-    ghost: "border border-line bg-white text-ink hover:bg-surface",
+    primary: "text-white shadow-[0_6px_16px_-6px_var(--brand-soft)] hover:brightness-110 hover:-translate-y-px active:translate-y-0",
+    ghost: "border border-line bg-card-strong text-ink hover:border-line-strong hover:bg-surface",
     danger: "bg-danger-soft text-danger hover:bg-danger hover:text-white",
   }[variant];
+  const style = variant === "primary"
+    ? { background: "linear-gradient(135deg, var(--brand-bright), var(--brand-deep))" }
+    : undefined;
   return (
-    <button type={type} onClick={onClick} disabled={disabled} className={`${base} ${styles}`}>
+    <button type={type} onClick={onClick} disabled={disabled} className={`${base} ${styles}`} style={style}>
       {children}
     </button>
   );
@@ -25,13 +28,13 @@ export function Btn({
 export function Badge({ children, tone = "gray" }: { children: ReactNode; tone?: "gray" | "blue" | "green" | "red" | "amber" }) {
   const tones = {
     gray: "bg-surface text-ink-muted border-line",
-    blue: "bg-brand-soft text-brand-dark border-brand-soft",
+    blue: "bg-brand-soft text-brand border-brand-soft",
     green: "bg-success-soft text-success border-success-soft",
     red: "bg-danger-soft text-danger border-danger-soft",
     amber: "bg-warning-soft text-warning border-warning-soft",
   }[tone];
   return (
-    <span className={`inline-block rounded-full border px-2 py-0.5 text-[11.5px] font-medium ${tones}`}>
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11.5px] font-semibold ${tones}`}>
       {children}
     </span>
   );
@@ -47,14 +50,14 @@ export function Modal({ title, open, onClose, children, wide }: {
   }, [open, onClose]);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4 backdrop-blur-sm" onMouseDown={onClose}>
       <div
-        className={`w-full ${wide ? "max-w-3xl" : "max-w-md"} max-h-[88dvh] overflow-y-auto rounded-card bg-card p-6 shadow-xl`}
+        className={`w-full ${wide ? "max-w-3xl" : "max-w-md"} max-h-[88dvh] overflow-y-auto rounded-card border border-line bg-card-strong p-6 shadow-2xl backdrop-blur-2xl`}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-[16px] font-semibold">{title}</h2>
-          <button onClick={onClose} className="text-ink-faint hover:text-ink cursor-pointer text-lg leading-none">✕</button>
+          <button onClick={onClose} className="grid h-7 w-7 place-items-center rounded-full text-ink-faint hover:bg-surface hover:text-ink cursor-pointer text-lg leading-none">✕</button>
         </div>
         {children}
       </div>
@@ -64,11 +67,11 @@ export function Modal({ title, open, onClose, children, wide }: {
 
 export function Alert({ kind, children }: { kind: "error" | "info" | "success"; children: ReactNode }) {
   const cls = {
-    error: "bg-danger-soft text-danger",
-    info: "bg-brand-soft text-brand-dark",
-    success: "bg-success-soft text-success",
+    error: "bg-danger-soft text-danger border-danger-soft",
+    info: "bg-brand-soft text-brand border-brand-soft",
+    success: "bg-success-soft text-success border-success-soft",
   }[kind];
-  return <div className={`mt-3 rounded-control px-3 py-2.5 text-[13px] ${cls}`}>{children}</div>;
+  return <div className={`mt-3 rounded-control border px-3.5 py-2.5 text-[13px] ${cls}`}>{children}</div>;
 }
 
 export type Option = { value: string; label: string };
@@ -79,7 +82,7 @@ export function MultiSelect({ options, value, onChange }: {
   const toggle = (v: string) =>
     onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
   return (
-    <div className="max-h-44 overflow-y-auto rounded-control border border-line bg-white p-1.5">
+    <div className="max-h-44 overflow-y-auto rounded-control border border-line bg-card-strong p-1.5">
       {options.length === 0 && <div className="px-2 py-1 text-[13px] text-ink-faint">No options available</div>}
       {options.map((o) => (
         <label key={o.value} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-[13px] hover:bg-surface !mt-0 !mb-0 font-normal">

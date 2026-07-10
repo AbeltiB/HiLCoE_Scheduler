@@ -2,12 +2,24 @@ import { z } from "zod";
 
 const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use HH:MM (24h)");
 
-export const periodSchema = z.object({
+const periodBase = z.object({
   name: z.string().min(2).max(80),
   type: z.enum(["SEMESTER", "TERM"]),
   startDate: z.coerce.date(),
   endDate: z.coerce.date(),
-}).refine((d) => d.endDate > d.startDate, { path: ["endDate"], message: "End date must be after start date" });
+});
+export const periodSchema = periodBase.refine((d) => d.endDate > d.startDate, {
+  path: ["endDate"], message: "End date must be after start date",
+});
+// .partial() can't be called on a refined (ZodEffects) schema — Zod throws.
+// Kept as an explicit sibling schema for PATCH rather than probing schema
+// internals at runtime. Only re-checks the date ordering when an edit
+// actually touches both dates together; a single-field edit is validated
+// against whichever date it changes without re-fetching the other from the DB.
+export const periodUpdateSchema = periodBase.partial().refine(
+  (d) => !(d.startDate && d.endDate) || d.endDate > d.startDate,
+  { path: ["endDate"], message: "End date must be after start date" }
+);
 
 export const programSchema = z.object({
   code: z.string().min(2).max(20),
@@ -33,7 +45,7 @@ export const groupSchema = z.object({
   headcount: z.coerce.number().int().positive(),
 });
 
-export const courseSchema = z.object({
+const courseBase = z.object({
   code: z.string().min(2).max(20),
   name: z.string().min(2).max(160),
   lectureCreditHrs: z.coerce.number().int().min(0).max(12),
@@ -41,9 +53,27 @@ export const courseSchema = z.object({
   lectureSessionsPerWeek: z.coerce.number().int().min(0).max(6),
   labSessionsPerWeek: z.coerce.number().int().min(0).max(6),
   labNeedsDoublePeriod: z.coerce.boolean().default(false),
-}).refine((c) => c.lectureSessionsPerWeek + c.labSessionsPerWeek > 0, {
+});
+export const courseSchema = courseBase.refine((c) => c.lectureSessionsPerWeek + c.labSessionsPerWeek > 0, {
   path: ["lectureSessionsPerWeek"],
   message: "A course must have at least one weekly session",
+});
+// See periodUpdateSchema above for why this is a sibling schema, not a
+// derived .partial(). Only re-checks the weekly-session-count invariant when
+// an edit touches both session-count fields together.
+export const courseUpdateSchema = courseBase.partial().refine(
+  (c) =>
+    c.lectureSessionsPerWeek === undefined ||
+    c.labSessionsPerWeek === undefined ||
+    c.lectureSessionsPerWeek + c.labSessionsPerWeek > 0,
+  { path: ["lectureSessionsPerWeek"], message: "A course must have at least one weekly session" }
+);
+
+export const studentSchema = z.object({
+  fullName: z.string().min(2).max(120),
+  email: z.string().email(),
+  sectionId: z.string().uuid(),
+  groupId: z.string().uuid().nullable().optional(),
 });
 
 export const roomSchema = z.object({
@@ -86,7 +116,11 @@ export const slotDefSchema = z.object({
 export const slotsBulkSchema = z.object({ slots: z.array(slotDefSchema) });
 
 export const availabilityBulkSchema = z.object({
-  entries: z.array(z.object({ slotDefId: z.string().uuid(), available: z.boolean() })),
+  entries: z.array(z.object({
+    slotDefId: z.string().uuid(),
+    status: z.enum(["AVAILABLE", "AVOID", "UNAVAILABLE"]),
+    reason: z.string().max(300).nullable().optional(),
+  })),
 });
 
 export const scheduleSchema = z.object({
@@ -111,6 +145,20 @@ export const scheduleConfigSchema = z.object({
     max_time_seconds: z.coerce.number().int().min(5).max(600).default(60),
   }),
 });
+
+export const broadcastSchema = z.object({
+  subject: z.string().min(2).max(200),
+  body: z.string().min(2).max(20000),
+  allStudents: z.coerce.boolean().default(false),
+  allInstructors: z.coerce.boolean().default(false),
+  sectionIds: z.array(z.string().uuid()).default([]),
+  groupIds: z.array(z.string().uuid()).default([]),
+  instructorIds: z.array(z.string().uuid()).default([]),
+  studentIds: z.array(z.string().uuid()).default([]),
+}).refine(
+  (d) => d.allStudents || d.allInstructors || d.sectionIds.length + d.groupIds.length + d.instructorIds.length + d.studentIds.length > 0,
+  { path: ["allStudents"], message: "Pick at least one audience" }
+);
 
 export const moveSchema = z.object({
   slotDefId: z.string().uuid(),

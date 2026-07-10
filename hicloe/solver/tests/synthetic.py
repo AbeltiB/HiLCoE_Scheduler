@@ -45,7 +45,9 @@ def build_request(job_id: str = "test-1") -> SolveRequest:
 
     pg_slots = [s.id for s in hilcoe_slots() if "PG" in s.audience and not s.blocked]
     instructors = [
-        Instructor(id="FT-1"), Instructor(id="FT-2"),
+        # FT-1 prefers not to teach Monday mornings (soft — with reasons in the app)
+        Instructor(id="FT-1", avoid_slot_ids=["MON_P1", "MON_P2"]),
+        Instructor(id="FT-2"),
         Instructor(id="FT-3"), Instructor(id="FT-4"),
         # PT-1: evenings + weekend PG windows only
         Instructor(id="PT-1", employment="PART_TIME",

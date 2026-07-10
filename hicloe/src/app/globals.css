@@ -1,46 +1,215 @@
 @import "tailwindcss";
 
-@theme {
-  --color-brand: #1d4ed8;
-  --color-brand-dark: #173db0;
-  --color-brand-soft: #e8f0fe;
-  --color-surface: #f6f7f9;
-  --color-card: #ffffff;
-  --color-line: #e3e6ea;
-  --color-line-strong: #c9ced6;
-  --color-ink: #16181d;
-  --color-ink-muted: #5c6470;
-  --color-ink-faint: #8a919c;
-  --color-danger: #b3261e;
-  --color-danger-soft: #fdecea;
-  --color-success: #146c43;
-  --color-success-soft: #e6f4ea;
-  --color-warning: #92600a;
-  --color-warning-soft: #fdf3e0;
-  --font-sans: system-ui, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-  --radius-control: 0.5rem;
-  --radius-card: 0.75rem;
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ── Runtime theme tokens (light) ─────────────────────────────── */
+/* Palette anchored to the HiLCoE mark: deep disc blue, red ribbon accent. */
+:root {
+  --surface: #eef2fa;
+  --card: rgba(255, 255, 255, 0.66);
+  --card-strong: rgba(255, 255, 255, 0.85);
+  --line: rgba(16, 32, 74, 0.10);
+  --line-strong: rgba(16, 32, 74, 0.22);
+  --glass-edge: rgba(255, 255, 255, 0.70);
+  --ink: #0f1626;
+  --ink-muted: #4d5a74;
+  --ink-faint: #8b96ac;
+  --brand: #2158d1;
+  --brand-deep: #143a94;
+  --brand-bright: #3d78f2;
+  --brand-soft: rgba(33, 88, 209, 0.10);
+  --accent: #d81f2f;
+  --accent-soft: rgba(216, 31, 47, 0.10);
+  --danger: #c22c2c;
+  --danger-soft: rgba(213, 32, 47, 0.10);
+  --success: #177245;
+  --success-soft: rgba(23, 114, 69, 0.11);
+  --warning: #8a5b00;
+  --warning-soft: rgba(196, 137, 0, 0.13);
+  --glow-a: rgba(33, 88, 209, 0.18);
+  --glow-b: rgba(33, 88, 209, 0.10);
+  --beam: rgba(216, 31, 47, 0.055);
+  --shadow-color: 220, 35, 25, 70;
+}
+.dark {
+  --surface: #080d1c;
+  --card: rgba(255, 255, 255, 0.05);
+  --card-strong: rgba(15, 23, 44, 0.88);
+  --line: rgba(255, 255, 255, 0.09);
+  --line-strong: rgba(255, 255, 255, 0.22);
+  --glass-edge: rgba(255, 255, 255, 0.11);
+  --ink: #e8edf7;
+  --ink-muted: #9aa7c0;
+  --ink-faint: #64708a;
+  --brand: #5b8bef;
+  --brand-deep: #2f62d8;
+  --brand-bright: #79a3ff;
+  --brand-soft: rgba(91, 139, 239, 0.14);
+  --accent: #ff5c68;
+  --accent-soft: rgba(255, 92, 104, 0.14);
+  --danger: #f07373;
+  --danger-soft: rgba(240, 90, 90, 0.14);
+  --success: #59c78f;
+  --success-soft: rgba(89, 199, 143, 0.13);
+  --warning: #e5b35a;
+  --warning-soft: rgba(229, 179, 90, 0.13);
+  --glow-a: rgba(47, 98, 216, 0.30);
+  --glow-b: rgba(47, 98, 216, 0.17);
+  --beam: rgba(255, 92, 104, 0.09);
+  --shadow-color: 0, 0, 0, 60;
+}
+
+/* ── Map tokens into Tailwind utilities ───────────────────────── */
+@theme inline {
+  --color-surface: var(--surface);
+  --color-card: var(--card);
+  --color-card-strong: var(--card-strong);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-glass-edge: var(--glass-edge);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+  --color-brand: var(--brand);
+  --color-brand-deep: var(--brand-deep);
+  --color-brand-bright: var(--brand-bright);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-dark: var(--brand-deep); /* back-compat alias */
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --font-sans: var(--font-body), "Segoe UI", system-ui, sans-serif;
+  --font-display: var(--font-heading), var(--font-body), system-ui, sans-serif;
+  --radius-control: 0.625rem;
+  --radius-card: 1rem;
 }
 
 @layer base {
-  body { @apply bg-surface text-ink font-sans text-[15px] leading-relaxed antialiased; }
-  input, select, textarea {
-    @apply w-full rounded-control border border-line bg-white px-3 py-2 text-[14px]
-           focus:outline-2 focus:outline-brand focus:outline-offset-1 focus:border-transparent;
+  * { box-sizing: border-box; }
+  html { color-scheme: light; }
+  html.dark { color-scheme: dark; }
+
+  body {
+    @apply bg-surface text-ink font-sans text-[14.5px] leading-relaxed antialiased;
+    position: relative;
+    min-height: 100dvh;
   }
-  label { @apply block text-[13px] font-medium mt-3.5 mb-1; }
+  /* Signature: aurora backdrop — two brand glows + one faint red beam at the
+     logo slash's angle. Everything glass floats over this. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background:
+      radial-gradient(560px 420px at 12% -6%, var(--glow-a), transparent 68%),
+      radial-gradient(640px 500px at 96% 32%, var(--glow-b), transparent 70%),
+      linear-gradient(118deg, transparent 43%, var(--beam) 50%, transparent 57%),
+      var(--surface);
+  }
+
+  h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.015em; }
+
+  input, select, textarea {
+    @apply w-full rounded-control border border-line px-3 py-2 text-[14px] text-ink
+           transition-shadow focus:outline-none focus:border-brand
+           focus:shadow-[0_0_0_3px_var(--brand-soft)];
+    background: var(--card-strong);
+  }
+  ::placeholder { color: var(--ink-faint); }
+  label { @apply block text-[12.5px] font-semibold mt-3.5 mb-1 text-ink-muted; }
+  table { font-variant-numeric: tabular-nums; }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--line-strong);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--brand) 40%, var(--line-strong)); background-clip: padding-box; }
+  * { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; animation: none !important; }
+  }
 }
 
+/* Glass treatment for every card-surface already in the codebase. */
 @layer components {
+  .bg-card, .bg-card\/90 {
+    backdrop-filter: blur(18px) saturate(150%);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
+    box-shadow: 0 1px 2px rgba(10, 20, 50, 0.04), 0 12px 32px -18px rgba(10, 25, 70, 0.25),
+                inset 0 1px 0 var(--glass-edge);
+  }
+
   .auth-wrap { @apply min-h-dvh grid place-items-center p-6; }
-  .card { @apply w-full max-w-[400px] rounded-card border border-line bg-card p-8; }
+  .card {
+    @apply w-full max-w-[400px] rounded-card border border-line bg-card p-8;
+  }
   .card h1 { @apply text-[19px] font-semibold mb-0.5; }
   .card .sub { @apply text-[13px] text-ink-muted mb-5; }
   .card button, .btn-primary {
-    @apply w-full mt-5 rounded-control bg-brand px-4 py-2.5 font-medium text-white
-           hover:bg-brand-dark disabled:opacity-60 disabled:cursor-default cursor-pointer;
+    @apply w-full mt-5 rounded-control px-4 py-2.5 font-semibold text-white cursor-pointer
+           disabled:opacity-60 disabled:cursor-default transition-all;
+    background: linear-gradient(135deg, var(--brand-bright), var(--brand-deep));
+    box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--brand) 70%, transparent);
+  }
+  .card button:hover:not(:disabled), .btn-primary:hover:not(:disabled) {
+    filter: brightness(1.07);
+    transform: translateY(-1px);
   }
   .msg { @apply mt-3.5 rounded-control px-3 py-2.5 text-[13px]; }
   .msg.error { @apply bg-danger-soft text-danger; }
-  .msg.info { @apply bg-brand-soft text-brand-dark; }
+  .msg.info { @apply bg-brand-soft text-brand; }
+
+  /* Sidebar nav items — icon slot is a fixed box so every glyph/SVG lands on
+     the same optical center regardless of its natural bounding box. */
+  .nav-item {
+    @apply relative flex items-center gap-2.5 rounded-control px-2.5 py-2 text-[13.5px] font-medium
+           text-ink-muted transition-colors;
+  }
+  .nav-item:hover { @apply bg-surface text-ink; }
+  .nav-item.active {
+    color: var(--brand);
+    background: var(--brand-soft);
+  }
+  .nav-item.active::before {
+    content: "";
+    position: absolute;
+    left: -8px; top: 20%;
+    height: 60%; width: 3px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, var(--brand-bright), var(--brand));
+  }
+  .nav-icon { @apply grid h-5 w-5 shrink-0 place-items-center; }
+
+  /* Stat / summary tiles used on the dashboard */
+  .stat-tile {
+    @apply relative overflow-hidden rounded-card border border-line bg-card p-4 transition-all;
+  }
+  .stat-tile:hover { @apply border-line-strong; transform: translateY(-2px); }
+  .stat-tile::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0;
+    background: radial-gradient(120px 90px at 20% 0%, var(--brand-soft), transparent 70%);
+    transition: opacity .25s;
+  }
+  .stat-tile:hover::after { opacity: 1; }
+
+  .glass-panel {
+    @apply rounded-card border border-line bg-card;
+  }
+
+  /* Faint 1px highlight along the top edge of glass surfaces — the detail
+     that reads as "glass" rather than just "translucent". */
+  .glass-panel, .stat-tile, .card {
+    position: relative;
+  }
 }

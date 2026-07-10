@@ -10,10 +10,24 @@ export const GET = guarded("entities:read", async () => {
       period: true,
       slotTemplate: { select: { id: true, name: true } },
       _count: { select: { versions: true } },
+      versions: {
+        orderBy: { number: "desc" },
+        take: 1,
+        select: { id: true, number: true, solverResponse: true },
+      },
     },
     orderBy: { createdAt: "desc" },
   });
-  return NextResponse.json({ rows });
+  // Shaped for the list UI's "jump straight to the timetable" quick link —
+  // solverResponse itself is a large solver-reproducibility payload that
+  // never needs to leave this route.
+  const shaped = rows.map(({ versions, ...r }) => ({
+    ...r,
+    latestVersion: versions[0]
+      ? { id: versions[0].id, number: versions[0].number, solverStatus: (versions[0].solverResponse as { status?: string } | null)?.status ?? null }
+      : null,
+  }));
+  return NextResponse.json({ rows: shaped });
 });
 
 export const POST = guarded("schedule:configure", async (ctx) => {

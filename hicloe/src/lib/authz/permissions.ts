@@ -21,6 +21,8 @@ export const PERMISSIONS = [
   // self-service
   "availability:edit_own",
   "timetable:view_published",
+  // communication
+  "broadcast:send",     // email students/instructors by section, group, or everyone
 ] as const;
 
 export type PermissionAction = (typeof PERMISSIONS)[number];

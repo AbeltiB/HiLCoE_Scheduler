@@ -1,16 +1,19 @@
 import * as XLSX from "xlsx";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit/audit";
+import { HttpError } from "@/lib/auth/guard";
 
 /**
  * Registration import — canonical workbook format (CSV or XLSX).
  *
  * Sheets (CSV = one file per sheet, sheet name inferred from headers):
- *   Courses:   code, name, lecture_credit, lab_credit, lecture_per_week, lab_per_week, double_lab(Y/N)
- *   Batches:   batch, program_code, period_name
- *   Sections:  batch, section, headcount
- *   Groups:    batch, section, group, headcount
- *   Offerings: batch, course_code, sections("A,B"), shared_lecture(Y/N)
+ *   Courses:     code, name, lecture_credit, lab_credit, lecture_per_week, lab_per_week, double_lab(Y/N)
+ *   Batches:     batch, program_code, period_name
+ *   Sections:    batch, section, headcount
+ *   Groups:      batch, section, group, headcount
+ *   Offerings:   batch, course_code, sections("A,B"), shared_lecture(Y/N)
+ *   Instructors: full_name, email, employment(FULL_TIME/PART_TIME)
+ *   Students:    batch, section, group(optional), full_name, email
  *
  * The same shape is what a future registration-system API adapter must emit —
  * parse() is the only format-specific layer.
@@ -22,12 +25,19 @@ export type ParsedImport = {
   sections: { batch: string; name: string; headcount: number }[];
   groups: { batch: string; section: string; name: string; headcount: number }[];
   offerings: { batch: string; courseCode: string; sections: string[]; sharedLecture: boolean }[];
+  instructors: { fullName: string; email: string; employment: string }[];
+  students: { batch: string; section: string; group: string; fullName: string; email: string }[];
 };
 
 export type Issue = { level: "error" | "warning"; sheet: string; row?: number; message: string };
 export type ValidationReport = { errors: Issue[]; warnings: Issue[]; summary: Record<string, number> };
 
-const S = (v: unknown) => String(v ?? "").trim();
+// Strip a leading formula-trigger character (=, +, -, @) so imported text
+// can't turn into a live formula the moment this data is ever opened/exported
+// as a spreadsheet again — no such re-export exists today, but nothing then
+// has to remember to sanitize on the way out either.
+const FORMULA_TRIGGER = /^[=+\-@]+/;
+const S = (v: unknown) => String(v ?? "").trim().replace(FORMULA_TRIGGER, "");
 const N = (v: unknown) => Number(String(v ?? "").trim());
 const B = (v: unknown) => ["y", "yes", "true", "1"].includes(S(v).toLowerCase());
 
@@ -64,6 +74,16 @@ export function parseWorkbook(buffer: Buffer): ParsedImport {
       courseCode: S(r["course_code"]).toUpperCase(),
       sections: S(r["sections"]).split(",").map((s) => s.trim().toUpperCase()).filter(Boolean),
       sharedLecture: B(r["shared_lecture"]),
+    })),
+    instructors: sheet("Instructors").map((r) => ({
+      fullName: S(r["full_name"]),
+      email: S(r["email"]).toLowerCase(),
+      employment: S(r["employment"]).toUpperCase(),
+    })),
+    students: sheet("Students").map((r) => ({
+      batch: S(r["batch"]), section: S(r["section"]).toUpperCase(),
+      group: S(r["group"]).toUpperCase(),
+      fullName: S(r["full_name"]), email: S(r["email"]).toLowerCase(),
     })),
   };
 }
@@ -124,12 +144,15 @@ export async function validateImport(p: ParsedImport): Promise<ValidationReport>
   });
 
   // Groups
+  const groupKey = (b: string, s: string, g: string) => `${b}::${s}::${g}`;
+  const importGroups = new Set<string>();
   const groupSums = new Map<string, number>();
   p.groups.forEach((g, i) => {
     const row = i + 2;
     const key = sectionKey(g.batch, g.section);
     if (!importSections.has(key)) err("Groups", row, `Group ${g.name}: section '${g.batch}/${g.section}' not in Sections sheet`);
     if (!Number.isInteger(g.headcount) || g.headcount <= 0) err("Groups", row, `Group ${g.batch}/${g.section}/${g.name}: invalid headcount`);
+    importGroups.add(groupKey(g.batch, g.section, g.name));
     groupSums.set(key, (groupSums.get(key) ?? 0) + g.headcount);
   });
   for (const [key, sum] of groupSums) {
@@ -158,11 +181,42 @@ export async function validateImport(p: ParsedImport): Promise<ValidationReport>
     }
   });
 
+  // Instructors
+  const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const importInstructorEmails = new Set<string>();
+  p.instructors.forEach((ins, i) => {
+    const row = i + 2;
+    if (!ins.fullName) err("Instructors", row, "Missing full name");
+    if (!ins.email || !emailRe.test(ins.email)) err("Instructors", row, `${ins.fullName || "(unnamed)"}: missing or invalid email`);
+    else if (importInstructorEmails.has(ins.email)) err("Instructors", row, `Duplicate instructor email ${ins.email}`);
+    importInstructorEmails.add(ins.email);
+    if (!["FULL_TIME", "PART_TIME"].includes(ins.employment)) {
+      err("Instructors", row, `${ins.fullName || ins.email}: employment must be FULL_TIME or PART_TIME, got '${ins.employment}'`);
+    }
+  });
+
+  // Students
+  const importStudentEmails = new Set<string>();
+  p.students.forEach((s, i) => {
+    const row = i + 2;
+    if (!s.fullName) err("Students", row, "Missing full name");
+    if (!s.email || !emailRe.test(s.email)) err("Students", row, `${s.fullName || "(unnamed)"}: missing or invalid email`);
+    else if (importStudentEmails.has(s.email)) err("Students", row, `Duplicate student email ${s.email}`);
+    importStudentEmails.add(s.email);
+    if (!importSections.has(sectionKey(s.batch, s.section))) {
+      err("Students", row, `${s.fullName || s.email}: section '${s.batch}/${s.section}' not in Sections sheet`);
+    }
+    if (s.group && !importGroups.has(groupKey(s.batch, s.section, s.group))) {
+      err("Students", row, `${s.fullName || s.email}: group '${s.batch}/${s.section}/${s.group}' not in Groups sheet`);
+    }
+  });
+
   return {
     errors, warnings,
     summary: {
       courses: p.courses.length, batches: p.batches.length, sections: p.sections.length,
       groups: p.groups.length, offerings: p.offerings.length,
+      instructors: p.instructors.length, students: p.students.length,
       errors: errors.length, warnings: warnings.length,
     },
   };
@@ -171,20 +225,56 @@ export async function validateImport(p: ParsedImport): Promise<ValidationReport>
 /** Commit a validated import in one transaction (upsert semantics, audited). */
 export async function commitImport(importId: string, p: ParsedImport, actorId: string, requestId?: string) {
   await db.$transaction(async (tx) => {
-    for (const c of p.courses) {
-      await tx.course.upsert({
-        where: { code: c.code },
-        update: { ...c, deletedAt: null },
-        create: c,
-      });
+    // Atomically claim the VALIDATED -> COMMITTED transition first. The
+    // caller already checked status before calling this, but that check and
+    // this transaction aren't the same operation — two concurrent commit
+    // requests can both pass the pre-check before either writes. Doing the
+    // claim as a conditional update (not a plain update) closes that window:
+    // only one concurrent transaction's updateMany can match count 1.
+    const claimed = await tx.importBatch.updateMany({
+      where: { id: importId, status: "VALIDATED" },
+      data: { status: "COMMITTED" },
+    });
+    if (claimed.count === 0) {
+      throw new HttpError(409, "Import already committed or no longer in a committable state");
     }
 
+    // Course/Instructor/Student/Section natural keys are only unique among
+    // non-deleted rows (a partial index, not a plain Prisma @@unique — see
+    // schema.prisma), so Prisma's upsert() can't target them directly. Look
+    // up the active row by hand instead: match an existing *active* row to
+    // update, or create a fresh one — never resurrect a soft-deleted row by
+    // matching it here, since that would silently reattach history to a new
+    // import rather than starting a clean record.
+    for (const c of p.courses) {
+      const existing = await tx.course.findFirst({ where: { code: c.code, deletedAt: null } });
+      if (existing) await tx.course.update({ where: { id: existing.id }, data: c });
+      else await tx.course.create({ data: c });
+    }
+
+    for (const ins of p.instructors) {
+      const data = { fullName: ins.fullName, employment: ins.employment as "FULL_TIME" | "PART_TIME" };
+      const existing = await tx.instructor.findFirst({ where: { email: ins.email, deletedAt: null } });
+      if (existing) await tx.instructor.update({ where: { id: existing.id }, data });
+      else await tx.instructor.create({ data: { ...data, email: ins.email } });
+    }
+
+    // Batches/offerings reference programs/periods/courses by natural key.
+    // Those were confirmed to exist at *validation* time, but a commit can
+    // happen much later (imports sit as VALIDATED until someone clicks
+    // Commit) — if the reference was deleted or renamed meanwhile, fail with
+    // a clean, specific 400 rather than crashing on a non-null assertion
+    // inside the transaction.
     const programs = await tx.program.findMany();
     const periods = await tx.academicPeriod.findMany();
     const batchIds = new Map<string, string>();
     for (const b of p.batches) {
-      const programId = programs.find((x) => x.code === b.programCode)!.id;
-      const periodId = periods.find((x) => x.name === b.periodName)!.id;
+      const program = programs.find((x) => x.code === b.programCode);
+      if (!program) throw new HttpError(400, `Batch '${b.name}': program '${b.programCode}' no longer exists — re-validate and try again`);
+      const period = periods.find((x) => x.name === b.periodName);
+      if (!period) throw new HttpError(400, `Batch '${b.name}': academic period '${b.periodName}' no longer exists — re-validate and try again`);
+      const programId = program.id;
+      const periodId = period.id;
       const row = await tx.batch.upsert({
         where: { name_programId_periodId: { name: b.name, programId, periodId } },
         update: { deletedAt: null },
@@ -196,27 +286,39 @@ export async function commitImport(importId: string, p: ParsedImport, actorId: s
     const sectionIds = new Map<string, string>();
     for (const s of p.sections) {
       const batchId = batchIds.get(s.batch)!;
-      const row = await tx.section.upsert({
-        where: { name_batchId: { name: s.name, batchId } },
-        update: { headcount: s.headcount, deletedAt: null },
-        create: { name: s.name, batchId, headcount: s.headcount },
-      });
+      const existing = await tx.section.findFirst({ where: { name: s.name, batchId, deletedAt: null } });
+      const row = existing
+        ? await tx.section.update({ where: { id: existing.id }, data: { headcount: s.headcount } })
+        : await tx.section.create({ data: { name: s.name, batchId, headcount: s.headcount } });
       sectionIds.set(`${s.batch}::${s.name}`, row.id);
     }
 
+    const groupIds = new Map<string, string>();
     for (const g of p.groups) {
       const sectionId = sectionIds.get(`${g.batch}::${g.section}`)!;
-      await tx.labGroup.upsert({
+      const row = await tx.labGroup.upsert({
         where: { name_sectionId: { name: g.name, sectionId } },
         update: { headcount: g.headcount, deletedAt: null },
         create: { name: g.name, sectionId, headcount: g.headcount },
       });
+      groupIds.set(`${g.batch}::${g.section}::${g.name}`, row.id);
     }
 
-    const courses = await tx.course.findMany();
+    for (const s of p.students) {
+      const sectionId = sectionIds.get(`${s.batch}::${s.section}`)!;
+      const groupId = s.group ? groupIds.get(`${s.batch}::${s.section}::${s.group}`) ?? null : null;
+      const data = { fullName: s.fullName, sectionId, groupId };
+      const existing = await tx.student.findFirst({ where: { email: s.email, deletedAt: null } });
+      if (existing) await tx.student.update({ where: { id: existing.id }, data });
+      else await tx.student.create({ data: { ...data, email: s.email } });
+    }
+
+    const courses = await tx.course.findMany({ where: { deletedAt: null } });
     for (const o of p.offerings) {
       const batchId = batchIds.get(o.batch)!;
-      const courseId = courses.find((c) => c.code === o.courseCode)!.id;
+      const course = courses.find((c) => c.code === o.courseCode);
+      if (!course) throw new HttpError(400, `Offering for batch '${o.batch}': course '${o.courseCode}' no longer exists — re-validate and try again`);
+      const courseId = course.id;
       const secIds = o.sections.map((s) => ({ id: sectionIds.get(`${o.batch}::${s}`)! }));
       const existing = await tx.courseOffering.findUnique({ where: { courseId_batchId: { courseId, batchId } } });
       if (existing) {
@@ -231,7 +333,6 @@ export async function commitImport(importId: string, p: ParsedImport, actorId: s
       }
     }
 
-    await tx.importBatch.update({ where: { id: importId }, data: { status: "COMMITTED" } });
     await audit(
       {
         action: "import.committed", actorId,
@@ -239,6 +340,7 @@ export async function commitImport(importId: string, p: ParsedImport, actorId: s
         meta: {
           courses: p.courses.length, batches: p.batches.length,
           sections: p.sections.length, groups: p.groups.length, offerings: p.offerings.length,
+          instructors: p.instructors.length, students: p.students.length,
         },
         requestId,
       },

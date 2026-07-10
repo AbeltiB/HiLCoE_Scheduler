@@ -5,8 +5,15 @@ import { parseWorkbook, validateImport } from "@/lib/import/pipeline";
 import type { Prisma } from "@/generated/prisma/client";
 
 export const GET = guarded("data:import", async () => {
+  // The list UI only ever reads these fields — never parsedPayload, which is
+  // the entire parsed workbook and can be substantial. Select explicitly
+  // instead of fetching (and shipping to the client) the full row every time
+  // this list loads.
   const rows = await db.importBatch.findMany({
-    include: { uploadedBy: { select: { fullName: true } } },
+    select: {
+      id: true, fileName: true, status: true, createdAt: true, validationReport: true,
+      uploadedBy: { select: { fullName: true } },
+    },
     orderBy: { createdAt: "desc" },
     take: 50,
   });

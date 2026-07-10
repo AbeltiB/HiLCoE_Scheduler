@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { guarded, HttpError } from "@/lib/auth/guard";
 import { roleSchema } from "@/lib/validation/admin";
+import { PERMISSIONS } from "@/lib/authz/permissions";
 import { audit } from "@/lib/audit/audit";
 
 export const PATCH = guarded("roles:manage", async (ctx, params) => {
@@ -12,11 +13,28 @@ export const PATCH = guarded("roles:manage", async (ctx, params) => {
 
   const before = await db.role.findUnique({ where: { id }, include: { permissions: true } });
   if (!before) throw new HttpError(404, "Role not found");
-  if (before.system && parsed.data.name) throw new HttpError(400, "System roles cannot be renamed");
+  if (before.system) {
+    if (parsed.data.name) throw new HttpError(400, "System roles cannot be renamed");
+    if (parsed.data.permissionActions) throw new HttpError(400, "System role permissions cannot be changed");
+  }
 
-  const perms = parsed.data.permissionActions
-    ? await db.permission.findMany({ where: { action: { in: parsed.data.permissionActions } } })
-    : undefined;
+  let perms: { id: string }[] | undefined;
+  if (parsed.data.permissionActions) {
+    const valid = new Set<string>([...PERMISSIONS, "*"]);
+    const bad = parsed.data.permissionActions.filter((a) => !valid.has(a));
+    if (bad.length) throw new HttpError(400, `Unknown permissions: ${bad.join(", ")}`);
+
+    // Holding roles:manage is not itself enough to grant a permission the
+    // actor doesn't have — otherwise any roles:manage holder could edit any
+    // role (including their own) up to "*" and self-escalate.
+    if (!ctx.user.permissions.has("*")) {
+      const ungranted = parsed.data.permissionActions.filter((a) => !ctx.user.permissions.has(a));
+      if (ungranted.length) {
+        throw new HttpError(403, `Cannot grant permission(s) you don't hold: ${ungranted.join(", ")}`);
+      }
+    }
+    perms = await db.permission.findMany({ where: { action: { in: parsed.data.permissionActions } } });
+  }
 
   await db.$transaction(async (tx) => {
     await tx.role.update({

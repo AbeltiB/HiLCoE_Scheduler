@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { use, useCallback, useEffect, useRef, useState } from "react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 import { Alert, Badge, Btn, Modal } from "@/components/ui";
 
 const WEIGHT_LABELS: [string, string][] = [
@@ -103,9 +104,12 @@ export default function SchedulePage({ params }: { params: Promise<{ id: string 
 
   return (
     <div>
+      <Link href="/schedules" className="mb-3 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-ink-muted hover:text-brand">
+        <ArrowLeft size={14} /> All schedules
+      </Link>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-[19px] font-semibold">{data.period?.name}</h1>
+          <h1 className="text-[21px] font-bold tracking-tight">{data.period?.name}</h1>
           <p className="text-[12.5px] text-ink-muted">
             {data.slotTemplate?.name} · {new Date(data.effectiveFrom).toLocaleDateString()} → {new Date(data.effectiveTo).toLocaleDateString()}
           </p>
@@ -134,7 +138,7 @@ export default function SchedulePage({ params }: { params: Promise<{ id: string 
 
       <div className="mt-6 grid gap-5 lg:grid-cols-2">
         {/* Constraint config */}
-        <div className="rounded-card border border-line bg-card p-5">
+        <div className="glass-panel p-5">
           <h2 className="mb-1 text-[15px] font-semibold">Soft-constraint weights</h2>
           <p className="mb-4 text-[12.5px] text-ink-muted">
             Higher = the solver tries harder to avoid it. 0 disables the preference.
@@ -166,30 +170,30 @@ export default function SchedulePage({ params }: { params: Promise<{ id: string 
         </div>
 
         {/* Versions */}
-        <div className="rounded-card border border-line bg-card p-5">
+        <div className="glass-panel p-5">
           <h2 className="mb-3 text-[15px] font-semibold">Versions</h2>
           {(data.versions ?? []).length === 0 && (
             <p className="text-[13px] text-ink-faint">No versions yet — run a precheck, then generate.</p>
           )}
           {(data.versions ?? []).map((v: any) => (
-            <div key={v.id} className="mb-2 flex items-center justify-between rounded-control border border-line px-3 py-2.5">
+            <div key={v.id} className="mb-2 flex items-center justify-between rounded-control border border-line bg-surface/30 px-3 py-2.5 transition-colors hover:border-line-strong">
               <div>
-                <div className="text-[13.5px] font-medium">
+                <div className="flex items-center gap-2 text-[13.5px] font-semibold">
                   v{v.number}
                   {v.solverStatus && (
                     <Badge tone={v.solverStatus === "OPTIMAL" ? "green" : v.solverStatus === "FEASIBLE" ? "blue" : "red"}>
                       {v.solverStatus.toLowerCase()}
                     </Badge>
-                  )}{" "}
-                  {v.objectivePenalty !== null && <span className="text-ink-muted">penalty {v.objectivePenalty}</span>}
+                  )}
+                  {v.objectivePenalty !== null && <span className="font-normal text-ink-muted">penalty {v.objectivePenalty}</span>}
                 </div>
                 <div className="text-[11.5px] text-ink-faint">
                   {new Date(v.createdAt).toLocaleString()} · {v.createdBy?.fullName} · {v.sessionCount} sessions
                 </div>
               </div>
               {(v.solverStatus === "OPTIMAL" || v.solverStatus === "FEASIBLE") && (
-                <Link className="text-[13px] text-brand hover:underline" href={`/schedules/${id}/versions/${v.id}`}>
-                  Open timetable →
+                <Link className="inline-flex shrink-0 items-center gap-1 text-[13px] font-semibold text-brand hover:underline" href={`/schedules/${id}/versions/${v.id}`}>
+                  Open timetable <ArrowRight size={13} />
                 </Link>
               )}
             </div>

@@ -86,10 +86,14 @@ export async function buildValidationWorld(scheduleId: string, versionId: string
     if (rows.length === 0) {
       avail.set(ins.id, ins.employment === "FULL_TIME" ? null : new Set());
     } else {
-      const overrides = new Map(rows.map((r) => [r.slotDefId, r.available]));
-      avail.set(ins.id, new Set(nonBlocked.filter((sid) =>
-        overrides.has(sid) ? overrides.get(sid)! : ins.employment === "FULL_TIME"
-      )));
+      // UNAVAILABLE is the only status that removes a slot; AVAILABLE/AVOID
+      // both leave it schedulable (AVOID is a soft solver preference, not a
+      // hard conflict here).
+      const statusBySlot = new Map(rows.map((r) => [r.slotDefId, r.status]));
+      avail.set(ins.id, new Set(nonBlocked.filter((sid) => {
+        const status = statusBySlot.get(sid);
+        return status === undefined ? ins.employment === "FULL_TIME" : status !== "UNAVAILABLE";
+      })));
     }
   }
 

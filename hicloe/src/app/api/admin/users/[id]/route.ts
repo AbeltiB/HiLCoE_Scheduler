@@ -19,6 +19,13 @@ export const PATCH = guarded("users:manage", async (ctx, params) => {
     throw new HttpError(400, "You cannot change your own status or roles");
   }
 
+  if (parsed.data.roleIds) {
+    const roles = await db.role.findMany({ where: { id: { in: parsed.data.roleIds } } });
+    if (roles.length !== parsed.data.roleIds.length) {
+      throw new HttpError(400, "One or more role ids do not exist");
+    }
+  }
+
   const after = await db.$transaction(async (tx) => {
     const u = await tx.user.update({
       where: { id },
@@ -34,6 +41,15 @@ export const PATCH = guarded("users:manage", async (ctx, params) => {
     });
     if (parsed.data.status === "SUSPENDED") {
       await tx.authSession.deleteMany({ where: { userId: id } }); // kill live sessions
+      // Also revoke outstanding tokens (activation/password-reset) — otherwise a
+      // suspended-but-not-yet-activated user could still activate via an email
+      // link issued before the suspension. (activate/route.ts independently
+      // re-checks the user's current status too, but a token should be dead on
+      // suspension, not just rejected at use time.)
+      await tx.authToken.updateMany({
+        where: { userId: id, usedAt: null },
+        data: { usedAt: new Date() },
+      });
     }
     await audit(
       {

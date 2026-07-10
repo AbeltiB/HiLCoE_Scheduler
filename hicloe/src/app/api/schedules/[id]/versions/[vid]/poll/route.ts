@@ -18,11 +18,29 @@ export const POST = guarded("schedule:generate", async (ctx, params) => {
     return NextResponse.json({ done: true, status: resp.status });
   }
 
-  const job = await solverGetJob(versionId).catch(() => null);
+  // A genuine 404 means the solver has no record of this job (e.g. it
+  // restarted) — that's permanent, so fail the schedule. Anything else
+  // (unreachable, 5xx) is transient: retry a few times in-request, and if
+  // still failing, report "not done yet" rather than killing the schedule —
+  // the client polls repeatedly anyway, so the next poll gets another shot
+  // instead of forcing a regenerate over what may be a momentary blip.
+  let job: Awaited<ReturnType<typeof solverGetJob>> | null = null;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 3 && !job; attempt++) {
+    try {
+      job = await solverGetJob(versionId, ctx.requestId);
+    } catch (e) {
+      lastErr = e;
+      if (e instanceof HttpError && e.status === 404) break;
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 500));
+    }
+  }
   if (!job) {
-    // Solver lost the job (restart). Mark failed so the user can regenerate.
-    await db.schedule.update({ where: { id: scheduleId }, data: { state: "FAILED" } });
-    return NextResponse.json({ done: true, status: "ERROR", error: "Solver job lost — regenerate." });
+    if (lastErr instanceof HttpError && lastErr.status === 404) {
+      await db.schedule.update({ where: { id: scheduleId }, data: { state: "FAILED" } });
+      return NextResponse.json({ done: true, status: "ERROR", error: "Solver job lost — regenerate." });
+    }
+    return NextResponse.json({ done: false, status: "RUNNING", error: "Solver temporarily unreachable — will retry." });
   }
   if (job.status !== "DONE") return NextResponse.json({ done: false, status: job.status });
 

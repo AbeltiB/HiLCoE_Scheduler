@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { guarded, HttpError } from "@/lib/auth/guard";
 import { broadcastSchema } from "@/lib/validation/entities";
 import { sendMail } from "@/lib/email/mailer";
+import { escapeHtml } from "@/lib/email/escape-html";
 import { env } from "@/lib/env";
 
 const BATCH = 50; // BCC chunk size
@@ -43,18 +44,28 @@ export const POST = guarded("broadcast:send", async (ctx) => {
 
   const list = [...emails];
   const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:16px;white-space:pre-wrap">${
-    d.body.replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    escapeHtml(d.body)
   }<p style="color:#999;font-size:12px;margin-top:24px">Sent via HiLCoE Scheduler</p></div>`;
 
+  // Audit per chunk, not only once at the end — the audit log is append-only
+  // (can't be updated in place once written), so this is what makes a
+  // mid-send crash leave a real record of exactly how far the blast got,
+  // instead of a silent partial send with zero trace.
   let sent = 0, failed = 0;
   for (let i = 0; i < list.length; i += BATCH) {
     const chunk = list.slice(i, i + BATCH);
+    let chunkFailed = false;
     try {
-      await sendMail({ to: env.MAIL_FROM, subject: d.subject, text: d.body, html, bcc: chunk } as any);
+      await sendMail({ to: env.MAIL_FROM, subject: d.subject, text: d.body, html, bcc: chunk });
       sent += chunk.length;
     } catch {
       failed += chunk.length;
+      chunkFailed = true;
     }
+    await ctx.log({
+      action: "broadcast.chunk_sent",
+      meta: { subject: d.subject, chunkIndex: i / BATCH, chunkSize: chunk.length, failed: chunkFailed },
+    });
   }
 
   await ctx.log({

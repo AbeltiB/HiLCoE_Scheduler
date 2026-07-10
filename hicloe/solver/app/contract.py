@@ -21,6 +21,7 @@ class Weights(BaseModel):
     instructor_consecutive_4plus: int = 4
     instructor_daily_overload: int = 2
     room_instability: int = 1
+    instructor_avoid_slot: int = 6
 
 
 class Options(BaseModel):
@@ -28,8 +29,10 @@ class Options(BaseModel):
 
 
 class Config(BaseModel):
-    max_time_seconds: float = 60.0
-    num_workers: int = 8
+    # Bounded so a caller can't request an unbounded solve or oversubscribe
+    # native CP-SAT threads across concurrently running jobs.
+    max_time_seconds: float = Field(default=60.0, ge=1, le=300)
+    num_workers: int = Field(default=8, ge=1, le=16)
     weights: Weights = Field(default_factory=Weights)
     options: Options = Field(default_factory=Options)
 
@@ -53,7 +56,8 @@ class Room(BaseModel):
 class Instructor(BaseModel):
     id: str
     employment: Literal["FULL_TIME", "PART_TIME"] = "FULL_TIME"
-    available_slot_ids: Optional[list[str]] = None  # None = all non-blocked
+    available_slot_ids: Optional[list[str]] = Field(default=None, max_length=2000)  # None = all non-blocked (hard)
+    avoid_slot_ids: Optional[list[str]] = Field(default=None, max_length=2000)      # soft: schedulable but penalized
 
 
 class StudentUnit(BaseModel):
@@ -69,10 +73,10 @@ class Session(BaseModel):
     offering_id: str
     kind: SessionKind
     periods: int = Field(default=1, ge=1, le=2)  # 2 = consecutive double period
-    audience_unit_ids: list[str] = Field(min_length=1)
-    instructor_ids: list[str] = Field(default_factory=list)
+    audience_unit_ids: list[str] = Field(min_length=1, max_length=500)
+    instructor_ids: list[str] = Field(default_factory=list, max_length=50)
     room_type: RoomType
-    allowed_slot_ids: Optional[list[str]] = None
+    allowed_slot_ids: Optional[list[str]] = Field(default=None, max_length=2000)
     week_order_after: Optional[str] = None  # soft: place after this session id
 
 
@@ -89,16 +93,20 @@ class ExternalOccupancy(BaseModel):
 
 
 class SolveRequest(BaseModel):
+    # Bounded well above any realistic university timetable (see solver/README
+    # "HiLCoE scale") so a large-but-plausible-looking payload can't pin a CPU
+    # core in prefiltering (which runs before max_time_seconds ever applies)
+    # or make CP-SAT build an unreasonably large model.
     contract_version: str = CONTRACT_VERSION
     job_id: str
     config: Config = Field(default_factory=Config)
-    slots: list[Slot]
-    rooms: list[Room]
-    instructors: list[Instructor]
-    student_units: list[StudentUnit]
-    sessions: list[Session]
-    pins: list[Pin] = Field(default_factory=list)
-    external_occupancy: list[ExternalOccupancy] = Field(default_factory=list)
+    slots: list[Slot] = Field(max_length=500)
+    rooms: list[Room] = Field(max_length=500)
+    instructors: list[Instructor] = Field(max_length=2000)
+    student_units: list[StudentUnit] = Field(max_length=5000)
+    sessions: list[Session] = Field(max_length=5000)
+    pins: list[Pin] = Field(default_factory=list, max_length=5000)
+    external_occupancy: list[ExternalOccupancy] = Field(default_factory=list, max_length=20000)
 
 
 # ── Response ──────────────────────────────────────────────────────────────

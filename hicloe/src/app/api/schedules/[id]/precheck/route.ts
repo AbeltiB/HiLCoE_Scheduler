@@ -8,7 +8,7 @@ export const POST = guarded("schedule:generate", async (ctx, params) => {
   const scheduleId = params?.id;
   if (!scheduleId) throw new HttpError(400, "Missing schedule id");
   const { payload, sessionRows } = await compilePayload(scheduleId, randomUUID());
-  const report = await solverPrecheck(payload);
+  const report = await solverPrecheck(payload, ctx.requestId);
   await ctx.log({
     action: "schedule.precheck",
     entityType: "Schedule", entityId: scheduleId,

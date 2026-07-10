@@ -1,12 +1,20 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { guarded } from "@/lib/auth/guard";
+import { guarded, HttpError } from "@/lib/auth/guard";
+
+function parseDateParam(raw: string | null, label: string): Date | undefined {
+  if (!raw) return undefined;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) throw new HttpError(400, `Invalid '${label}' date`);
+  return d;
+}
 
 /** Filterable audit browser: ?actorId=&action=&entityType=&entityId=&from=&to=&cursor= */
 export const GET = guarded("audit:read", async (ctx) => {
   const q = ctx.req.nextUrl.searchParams;
   const take = Math.min(Number(q.get("take") ?? 50), 200);
   const cursor = q.get("cursor");
+  if (cursor && !/^\d+$/.test(cursor)) throw new HttpError(400, "Invalid 'cursor' value");
 
   const rows = await db.auditLog.findMany({
     where: {
@@ -15,8 +23,8 @@ export const GET = guarded("audit:read", async (ctx) => {
       entityType: q.get("entityType") ?? undefined,
       entityId: q.get("entityId") ?? undefined,
       at: {
-        gte: q.get("from") ? new Date(q.get("from")!) : undefined,
-        lte: q.get("to") ? new Date(q.get("to")!) : undefined,
+        gte: parseDateParam(q.get("from"), "from"),
+        lte: parseDateParam(q.get("to"), "to"),
       },
     },
     orderBy: { id: "desc" },

@@ -14,11 +14,25 @@ type CrudOpts = {
   model: string; // prisma delegate name, e.g. "program"
   entityType: string; // audit label, e.g. "Program"
   schema: z.ZodTypeAny;
+  /**
+   * Schema for PATCH bodies. Defaults to `schema.partial()`, which only works
+   * for a plain ZodObject — a refined (ZodEffects) schema throws if you call
+   * `.partial()` on it. Any entity whose `schema` has a top-level `.refine()`
+   * must supply an explicit sibling schema here (see courseUpdateSchema /
+   * periodUpdateSchema in validation/entities.ts).
+   */
+  updateSchema?: z.ZodTypeAny;
   include?: Record<string, unknown>;
   orderBy?: Record<string, unknown>;
   softDelete?: boolean;
   /** Map validated data to prisma create/update payload (relations etc.) */
   toData?: (input: any) => Record<string, unknown>;
+  /**
+   * Optional soft check run after a successful create/update (outside the
+   * transaction — read-only). A returned string is surfaced as `warning` in
+   * the response; the write itself is never blocked by this.
+   */
+  warn?: (row: any) => Promise<string | undefined>;
 };
 
 const delegate = (model: string) => (db as any)[model];
@@ -43,12 +57,22 @@ export function crudCollection(o: CrudOpts) {
       const v = q.get(key);
       if (v) where[key] = v;
     }
-    const rows = await delegate(o.model).findMany({
-      where,
-      include: o.include,
-      orderBy: o.orderBy ?? { createdAt: "desc" },
-    });
-    return NextResponse.json({ rows });
+    // Opt-in pagination via ?take=&skip=. Existing callers that don't pass
+    // these keep getting one page — but bounded (default 500, capped at
+    // 1000), so a growing table can no longer make this an unbounded payload.
+    const take = Math.min(Number(q.get("take")) || 500, 1000);
+    const skip = Math.max(Number(q.get("skip")) || 0, 0);
+    const [rows, total] = await Promise.all([
+      delegate(o.model).findMany({
+        where,
+        include: o.include,
+        orderBy: o.orderBy ?? { createdAt: "desc" },
+        take,
+        skip,
+      }),
+      delegate(o.model).count({ where }),
+    ]);
+    return NextResponse.json({ rows, total, take, skip });
   });
 
   const POST = guarded("entities:write", async (ctx) => {
@@ -68,7 +92,8 @@ export function crudCollection(o: CrudOpts) {
         );
         return created;
       });
-      return NextResponse.json({ row }, { status: 201 });
+      const warning = await o.warn?.(row);
+      return NextResponse.json({ row, ...(warning ? { warning } : {}) }, { status: 201 });
     } catch (e) {
       prismaError(e);
     }
@@ -81,7 +106,7 @@ export function crudItem(o: CrudOpts) {
   const PATCH = guarded("entities:write", async (ctx: Ctx, params) => {
     const id = params?.id;
     if (!id) throw new HttpError(400, "Missing id");
-    const partial = (o.schema as any).partial ? (o.schema as any).partial() : o.schema;
+    const partial = o.updateSchema ?? (o.schema as any).partial();
     const parsed = partial.safeParse(await ctx.req.json().catch(() => ({})));
     if (!parsed.success) throw new HttpError(400, parsed.error.issues[0]?.message ?? "Invalid body");
 
@@ -102,7 +127,8 @@ export function crudItem(o: CrudOpts) {
         );
         return updated;
       });
-      return NextResponse.json({ row });
+      const warning = await o.warn?.(row);
+      return NextResponse.json({ row, ...(warning ? { warning } : {}) });
     } catch (e) {
       prismaError(e);
     }

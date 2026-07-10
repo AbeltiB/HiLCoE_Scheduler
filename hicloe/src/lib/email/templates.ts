@@ -1,5 +1,6 @@
 import { env } from "@/lib/env";
 import { sendMail } from "@/lib/email/mailer";
+import { escapeHtml } from "@/lib/email/escape-html";
 
 const shell = (title: string, body: string) => `
   <div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#1a1a1a">
@@ -20,7 +21,7 @@ export async function sendActivationEmail(to: string, fullName: string, rawToken
     text: `Hello ${fullName},\n\nAn account has been registered for you on the HiLCoE Scheduler. Set your password to activate it:\n${url}\n\nThe link expires in ${hours} hours.`,
     html: shell(
       "Account activation",
-      `<p style="font-size:14px">Hello ${fullName},</p>
+      `<p style="font-size:14px">Hello ${escapeHtml(fullName)},</p>
        <p style="font-size:14px">An account has been registered for you. Set your password to activate it. The link expires in ${hours} hours.</p>
        <p style="margin:24px 0"><a href="${url}" style="background:#1d4ed8;color:#fff;text-decoration:none;padding:10px 20px;border-radius:6px;font-size:14px">Set password &amp; activate</a></p>
        <p style="font-size:12px;color:#666">Or copy this link: ${url}</p>`

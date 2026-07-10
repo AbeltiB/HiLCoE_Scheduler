@@ -1,5 +1,5 @@
 import { crudItem } from "@/lib/crud";
-import { periodSchema } from "@/lib/validation/entities";
+import { periodSchema, periodUpdateSchema } from "@/lib/validation/entities";
 export const { PATCH, DELETE } = crudItem({
-  model: "academicPeriod", entityType: "AcademicPeriod", schema: periodSchema,
+  model: "academicPeriod", entityType: "AcademicPeriod", schema: periodSchema, updateSchema: periodUpdateSchema,
 });

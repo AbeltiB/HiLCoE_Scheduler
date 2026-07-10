@@ -1,5 +1,7 @@
 "use client";
+import Link from "next/link";
 import { use, useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowLeft, Pin, FastForward } from "lucide-react";
 import { Alert, Badge, Btn, Modal } from "@/components/ui";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -103,13 +105,16 @@ export default function TimetablePage({ params }: { params: Promise<{ id: string
 
   return (
     <div>
+      <Link href={`/schedules/${id}`} className="mb-3 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-ink-muted hover:text-brand">
+        <ArrowLeft size={14} /> Back to schedule
+      </Link>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-[19px] font-semibold">
-            {data.schedule.period} — v{data.version.number}
+          <h1 className="text-[21px] font-bold tracking-tight">
+            {data.schedule.period} <span className="text-ink-faint font-medium">— v{data.version.number}</span>
           </h1>
           <p className="text-[12.5px] text-ink-muted">
-            {data.solver?.status && <>Solver: {data.solver.status.toLowerCase()} · </>}
+            {data.solver?.status && <>Solver: <span className="font-semibold text-brand">{data.solver.status.toLowerCase()}</span> · </>}
             penalty {data.version.objectivePenalty ?? "—"} · click a session to move or pin it
           </p>
         </div>
@@ -143,38 +148,48 @@ export default function TimetablePage({ params }: { params: Promise<{ id: string
       </div>
       {msg && <Alert kind={msg.kind}>{msg.text}</Alert>}
 
-      <div className="mt-3 overflow-x-auto rounded-card border border-line bg-card p-3">
-        <table className="w-full min-w-[960px] border-separate border-spacing-1">
+      <div className="mt-3 mb-2 flex flex-wrap items-center gap-4 text-[12px] text-ink-muted">
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-brand-soft ring-1 ring-inset ring-brand/30" /> Lecture</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-warning-soft ring-1 ring-inset ring-warning/30" /> Lab</span>
+        <span className="flex items-center gap-1.5"><Pin size={12} /> Pinned</span>
+        <span className="flex items-center gap-1.5"><FastForward size={12} /> Double period</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm ring-1 ring-inset ring-brand" /> Manually edited</span>
+      </div>
+
+      <div className="glass-panel overflow-x-auto p-3">
+        <table className="w-full min-w-[960px] border-separate border-spacing-1.5">
           <thead>
             <tr>
               <th className="w-9"></th>
-              {DAYS.map((d) => <th key={d} className="pb-1 text-[12px] font-semibold text-ink-muted">{d}</th>)}
+              {DAYS.map((d) => <th key={d} className="pb-1.5 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">{d}</th>)}
             </tr>
           </thead>
           <tbody>
             {Array.from({ length: maxIndex }, (_, i) => i + 1).map((index) => (
               <tr key={index}>
-                <td className="pr-1 text-right align-top text-[11.5px] font-semibold text-ink-faint">P{index}</td>
+                <td className="pr-1.5 text-right align-top text-[11.5px] font-semibold text-ink-faint">P{index}</td>
                 {DAYS.map((_, di) => {
                   const slot = slotByDayIndex.get(`${di + 1}:${index}`);
-                  if (!slot) return <td key={di}><div className="min-h-16 rounded-control bg-surface/30" /></td>;
+                  if (!slot) return <td key={di}><div className="min-h-[68px] rounded-control bg-surface/30" /></td>;
                   if (slot.blocked) {
                     return <td key={di}>
-                      <div className="grid min-h-16 place-items-center rounded-control bg-surface/70 text-[11px] text-ink-faint">blocked</div>
+                      <div className="grid min-h-[68px] place-items-center rounded-control bg-surface/50 text-[11px] text-ink-faint">blocked</div>
                     </td>;
                   }
                   const here = sessionsAt(slot);
                   return (
                     <td key={di} className="align-top">
-                      <div className="min-h-16 space-y-1 rounded-control border border-line/60 bg-surface/30 p-1">
+                      <div className="min-h-[68px] space-y-1 rounded-control border border-line/60 bg-surface/25 p-1">
                         {here.map((s: any) => (
                           <button key={s.id} onClick={() => openMove(s)}
-                            className={`block w-full rounded px-1.5 py-1 text-left text-[10.5px] leading-tight cursor-pointer
-                              ${s.kind === "LAB" ? "bg-warning-soft text-warning" : "bg-brand-soft text-brand-dark"}
+                            className={`block w-full cursor-pointer rounded-[7px] px-1.5 py-1 text-left text-[10.5px] leading-tight transition-transform hover:-translate-y-px hover:shadow-sm
+                              ${s.kind === "LAB" ? "bg-warning-soft text-warning" : "bg-brand-soft text-brand"}
                               ${s.assignment.manuallyEdited ? "ring-1 ring-brand" : ""}`}>
-                            <span className="font-semibold">{s.course.code}</span>
-                            {s.assignment.pinned && " 📌"}
-                            {s.periods === 2 && " ⏩"}
+                            <span className="inline-flex items-center gap-1 font-bold">
+                              {s.course.code}
+                              {s.assignment.pinned && <Pin size={9} />}
+                              {s.periods === 2 && <FastForward size={9} />}
+                            </span>
                             <br />
                             {s.audienceUnits.map((u: any) => unitLabel(u.id)).join(", ")}
                             <br />
@@ -193,7 +208,7 @@ export default function TimetablePage({ params }: { params: Promise<{ id: string
 
       {/* Objective breakdown */}
       {data.solver?.objective?.breakdown?.length > 0 && (
-        <div className="mt-5 rounded-card border border-line bg-card p-4">
+        <div className="glass-panel mt-5 p-4">
           <h2 className="mb-2 text-[14px] font-semibold">Accepted soft-constraint costs</h2>
           {data.solver.objective.breakdown.map((b: any) => (
             <div key={b.constraint} className="mb-1 text-[13px]">

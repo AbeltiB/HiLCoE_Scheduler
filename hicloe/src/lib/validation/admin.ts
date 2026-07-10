@@ -4,13 +4,13 @@ export const createUserSchema = z.object({
   fullName: z.string().min(2).max(120),
   email: z.string().email(),
   roleIds: z.array(z.string().uuid()).min(1),
-  attributes: z.record(z.unknown()).default({}),
+  attributes: z.record(z.string(), z.unknown()).default({}),
 });
 
 export const updateUserSchema = z.object({
   fullName: z.string().min(2).max(120).optional(),
   roleIds: z.array(z.string().uuid()).min(1).optional(),
-  attributes: z.record(z.unknown()).optional(),
+  attributes: z.record(z.string(), z.unknown()).optional(),
   status: z.enum(["ACTIVE", "SUSPENDED"]).optional(),
 });
 
